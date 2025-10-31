@@ -20,6 +20,7 @@ app = Flask(__name__)
 CORS(app)
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 # Use classic endpoints for legacy APIs
 CLINICAL_TRIALS_STUDY_FIELDS = "https://classic.clinicaltrials.gov/api/query/study_fields"
 CLINICAL_TRIALS_FULL_STUDIES = "https://classic.clinicaltrials.gov/api/query/full_studies"
@@ -81,13 +82,22 @@ def _regex_extract(text: str) -> Dict[str, Any]:
     age = age_val
     sex = norm_sex(sex_match.group(1) if sex_match else None)
     diagnosis = dx_match.group(1).strip().title() if dx_match else None
+    if not diagnosis:
+        # Cardiology patterns
+        if "heart failure" in lower:
+            if "reduced ejection fraction" in lower or re.search(r"\bhfref\b", lower):
+                diagnosis = "Heart failure with reduced ejection fraction (HFrEF)"
+            else:
+                diagnosis = "Heart failure"
 
     # simple keyword harvesting
     keywords = []
     for kw in [
         "stage ii", "stage iii", "metastatic", "recurrent", "adjuvant",
         "neoadjuvant", "immunotherapy", "chemo", "radiation", "biomarker",
-        "egfr", "alk", "brca", "pd-l1", "her2"
+        "egfr", "alk", "brca", "pd-l1", "her2",
+        # Cardiology
+        "heart failure", "hfrEF", "reduced ejection fraction", "nyha", "sglt2"
     ]:
         if kw in lower:
             keywords.append(kw)
@@ -108,18 +118,43 @@ def _regex_extract(text: str) -> Dict[str, Any]:
 
 def _gemini_extract(transcript: str) -> Dict[str, Any]:
     if not GOOGLE_API_KEY or genai is None:
+        
         return _regex_extract(transcript)
     genai.configure(api_key=GOOGLE_API_KEY)
-    # Use a compact prompt to control output schema
+    # Use a compact, deterministic prompt and require strict JSON output
     prompt = (
-        "Extract patient info from the transcript. Return ONLY compact JSON with keys: "
-        "age (number or null), sex ('Male'|'Female'|null), diagnosis (string or null), "
-        "keywords (array of strings), locations (array of city/state/country strings). "
-        "Be concise and avoid extra narrative. Transcript:\n\n" + transcript
+        "You are extracting structured clinical info from a patient-doctor transcript.\n"
+        "Requirements:\n"
+        "- Output ONLY JSON (no prose).\n"
+        "- Keys: age (number or null), sex ('Male'|'Female'|null), diagnosis (string or null), keywords (string[]), locations (string[]).\n"
+        "- Age must be the patient's current age, not durations (e.g., 'quit 10 years ago' is NOT age).\n"
+        "- Prefer concise, canonical diagnosis terms (e.g., 'Heart failure with reduced ejection fraction (HFrEF)', 'HER2-positive invasive ductal carcinoma').\n"
+        "- Keywords: include staging, biomarkers, therapies (e.g., HER2, HFrEF, NYHA, SGLT2, adjuvant).\n"
+        "Transcript:\n\n" + transcript
     )
     try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        resp = model.generate_content(prompt)
+        # Try configured model first, then fallbacks for compatibility
+        candidate_models = [GEMINI_MODEL,
+                            "gemini-2.5-flash",
+                            "gemini-2.5-flash-latest",
+                            "gemini-1.5-flash-latest",
+                            "gemini-1.5-pro-latest",
+                            "gemini-1.5-flash",
+                            "gemini-1.5-pro"]
+        last_exc = None
+        for mid in candidate_models:
+            try:
+                model = genai.GenerativeModel(mid)
+                resp = model.generate_content(prompt, generation_config={
+                    "temperature": 0.2,
+                    "top_p": 0.9,
+                })
+                break
+            except Exception as e_model:
+                last_exc = e_model
+                continue
+        else:
+            raise last_exc or RuntimeError("No Gemini model succeeded")
         text = resp.text.strip()
         # Try to locate JSON in response
         json_str = text
@@ -139,10 +174,14 @@ def _gemini_extract(transcript: str) -> Dict[str, Any]:
                     data["age"] = int(m_age.group(1))
                 except Exception:
                     data["age"] = None
-        # If LLM age is missing or likely wrong, prefer specific textual age
-        txt_age, specific = _extract_age_from_text(transcript)
-        if txt_age is not None and (data.get("age") is None or specific):
+        # sanity bound age
+        if isinstance(data.get("age"), int) and (data["age"] < 0 or data["age"] > 120):
+            data["age"] = None
+        # If LLM age is missing, fall back to textual age
+        txt_age, _ = _extract_age_from_text(transcript)
+        if txt_age is not None and data.get("age") is None:
             data["age"] = txt_age
+            
         return {
             "age": data.get("age"),
             "sex": data.get("sex"),
@@ -150,7 +189,8 @@ def _gemini_extract(transcript: str) -> Dict[str, Any]:
             "keywords": data.get("keywords", [])[:10],
             "locations": data.get("locations", [])[:5],
         }
-    except Exception:
+    except Exception as e:
+        
         return _regex_extract(transcript)
 
 
@@ -170,6 +210,12 @@ def build_expr(extracted: Dict[str, Any]) -> str:
     if "her2" in dx or any("her2" in k for k in kws):
         add('"HER2 positive"')
         add('HER2')
+    # Heart failure expansions
+    if "heart failure" in dx or any("heart failure" in k for k in kws):
+        add('"heart failure"')
+    if "hfr" in dx or any("hfr" in k for k in kws) or any("reduced ejection fraction" in k for k in kws):
+        add('HFrEF')
+        add('"reduced ejection fraction"')
     if not parts and dx:
         # Quote multi-word diagnosis
         if len(dx.split()) > 1:
