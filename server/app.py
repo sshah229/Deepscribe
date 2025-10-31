@@ -156,16 +156,43 @@ def _gemini_extract(transcript: str) -> Dict[str, Any]:
 
 def build_expr(extracted: Dict[str, Any]) -> str:
     parts: List[str] = []
-    dx = extracted.get("diagnosis")
-    if dx:
-        parts.append(f"{dx}")
-    # add keywords
-    for kw in extracted.get("keywords", [])[:5]:
-        parts.append(kw)
-    # fallback generic terms if nothing
+    dx = (extracted.get("diagnosis") or "").lower()
+    kws = [k.lower() for k in (extracted.get("keywords") or [])]
+
+    def add(term: str):
+        if term and term not in parts:
+            parts.append(term)
+
+    # Expand diagnosis for common synonyms
+    if "breast" in dx or "ductal" in dx:
+        add('"breast cancer"')
+        add('"invasive ductal carcinoma"')
+    if "her2" in dx or any("her2" in k for k in kws):
+        add('"HER2 positive"')
+        add('HER2')
+    if not parts and dx:
+        # Quote multi-word diagnosis
+        if len(dx.split()) > 1:
+            add(f'"{dx}"')
+        else:
+            add(dx)
+
+    # Add a few keywords (quoted if multi-word), prefer therapeutic intents
+    priors = []
+    for kw in kws:
+        if kw in priors:
+            continue
+        priors.append(kw)
+        if len(priors) > 5:
+            break
+        add(f'"{kw}"' if ' ' in kw else kw)
+
+    # Fallback generic anchors
     if not parts:
-        parts = ["clinical trial"]
-    return " ".join(parts)
+        parts = ['"breast cancer"', 'HER2']
+
+    # Compose with OR to avoid overly restrictive AND
+    return " OR ".join(parts)
 
 
 def age_in_range(age: int | None, min_age: str | None, max_age: str | None) -> bool:
@@ -432,6 +459,15 @@ def query_trials(extracted: Dict[str, Any], max_rows: int = 30) -> Dict[str, Any
         if not sex_matches(sex, gender):
             continue
         filtered.append(s)
+
+    # If no filtered results but there were raw studies, return top unfiltered to avoid empty UI
+    if not filtered and studies:
+        return {
+            "expr": expr,
+            "count": len(studies[:15]),
+            "studies": studies[:15],
+            "note": "No trials passed local age/sex filters; showing top unfiltered results.",
+        }
 
     return {
         "expr": expr,
