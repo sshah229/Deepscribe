@@ -1,10 +1,10 @@
 # DeepScribe Clinical Trials Finder
 
-Full‑stack demo that:
+Full-stack demo that:
 
-- Extracts structured patient data from a transcript using Gemini (optional) or a safe heuristic fallback.
-- Queries ClinicalTrials.gov for matching studies.
-- Displays top matches in a simple React UI.
+- Extracts structured patient data from a transcript using Gemini (primary) with a safe regex fallback.
+- Queries ClinicalTrials.gov for matching studies (classic study_fields with smart fallbacks to full_studies and v2).
+- Renders top matches in a modern React UI.
 
 ## Architecture
 
@@ -15,6 +15,20 @@ Full‑stack demo that:
 
 - Python 3.10+
 - Node.js 18+
+
+## Live Demo
+
+- Client (Vercel): https://deepscribeclient.vercel.app/
+- API (Vercel): https://deepscribe-tan.vercel.app/
+
+The client calls the backend via `VITE_API_BASE`. In production this is set to the API URL above.
+
+## Overview of Approach
+
+- Transcript → Gemini prompt (JSON-only) extracts: `age`, `sex`, `diagnosis`, `keywords`, `locations`.
+- If Gemini is unavailable or a field is missing (age), a minimal regex extractor fills gaps.
+- Trial search builds a domain-aware OR query (e.g., adds synonyms for HER2/breast cancer or HFrEF) and queries ClinicalTrials.gov.
+- Local filtering by age/sex; if no results pass filters, top unfiltered results are returned to avoid empty states.
 
 ## Quick Start (Local)
 
@@ -42,6 +56,7 @@ Full‑stack demo that:
      ```
    - Open http://localhost:5173
    - Vite proxy sends `/api/*` to the Flask server at `http://localhost:8000`.
+   - Optional: create `client/.env` with `VITE_API_BASE=http://localhost:8000`.
 
 ## Usage
 
@@ -51,14 +66,35 @@ Full‑stack demo that:
 
 ## Deployment
 
-- Backend: Deploy to Render/Fly/Heroku or similar. Set env `PORT` and `GOOGLE_API_KEY`.
-- Frontend: Deploy to Vercel/Netlify. Configure `VITE_API_BASE` or use a reverse proxy. For simplicity, you can serve the React build from a static host and point it to your backend URL by replacing fetch base path `/api` with your backend origin.
+- Client on Vercel
+  - Project root: `client`
+  - Env var: `VITE_API_BASE=https://deepscribe-tan.vercel.app`
+  - Build: `vite build` (default), Output: `dist`
+
+- API on Vercel (or any Python host)
+  - Ensure `server/app.py` runs with `PORT` from environment.
+  - Env vars:
+    - `GOOGLE_API_KEY`
+    - `GEMINI_MODEL` (e.g., `gemini-2.5-flash`)
+  - Test: `https://deepscribe-tan.vercel.app/api/health`
 
 ## Assumptions
 
 - Transcript may omit some fields; the app uses best-effort extraction and does permissive filtering.
 - Age/sex eligibility is filtered client-side based on ClinicalTrials.gov fields.
 - Ranking is by API order + local filters; you could extend with LLM ranking.
+
+## API Endpoints
+
+- `POST /api/extract` → `{ extracted }`
+- `POST /api/match` → `{ extracted, results }`
+
+Example:
+```bash
+curl -X POST https://deepscribe-tan.vercel.app/api/match \
+  -H "Content-Type: application/json" \
+  -d '{"transcript":"58-year-old woman with HER2-positive invasive ductal carcinoma..."}'
+```
 
 ## Extend Ideas
 
