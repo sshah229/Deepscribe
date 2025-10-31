@@ -1,0 +1,9 @@
+Doctor: Good morning, Ms. Chen. I see you're a 58-year-old woman here for follow-up on your breast cancer.
+Patient: Yes. I was diagnosed with HER2-positive invasive ductal carcinoma last year. I had surgery and adjuvant chemotherapy. Lately I've had some chest discomfort and fatigue.
+Doctor: Any new imaging?
+Patient: CT last month showed no metastasis. My oncologist mentioned a possible neoadjuvant immunotherapy trial if there's recurrence.
+Doctor: Any biomarkers besides HER2?
+Patient: BRCA negative. No EGFR or ALK alterations. PD-L1 was low.
+Doctor: Any other health issues?
+Patient: Mild hypertension, controlled. No diabetes. I live in San Francisco, California.
+Doctor: Okay. We'll keep monitoring. If disease recurs, trials targeting HER2 or immunotherapy could be relevant.
