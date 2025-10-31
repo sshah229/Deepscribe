@@ -1,5 +1,7 @@
+const BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '')
+
 export async function extractData(transcript) {
-  const r = await fetch('/api/extract', {
+  const r = await fetch(`${BASE}/api/extract`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ transcript })
@@ -9,7 +11,7 @@ export async function extractData(transcript) {
 }
 
 export async function matchTrials(transcript) {
-  const r = await fetch('/api/match', {
+  const r = await fetch(`${BASE}/api/match`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ transcript })
