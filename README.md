@@ -96,9 +96,4 @@ curl -X POST https://deepscribe-tan.vercel.app/api/match \
   -d '{"transcript":"58-year-old woman with HER2-positive invasive ductal carcinoma..."}'
 ```
 
-## Extend Ideas
 
-- LLM-based ranking and reasoning for inclusion/exclusion.
-- Save favorites and export/share.
-- Chat about a specific trial.
-- Geospatial filtering by distance.
