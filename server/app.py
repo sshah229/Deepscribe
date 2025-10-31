@@ -27,12 +27,45 @@ CLINICAL_TRIALS_V2_STUDIES = "https://clinicaltrials.gov/api/v2/studies"
 
 # ---------- Utilities ----------
 
+def _extract_age_from_text(text: str) -> tuple[int | None, bool]:
+    """Find age using multiple patterns; return (age, specific_found).
+    specific_found is True when pattern is 'X-year-old' or 'aged X', which is more reliable
+    than generic 'X years' that can refer to durations.
+    """
+    lower = text.lower()
+    matches: list[tuple[int, int, bool]] = []  # (start_index, age, is_specific)
+    # Specific forms first: '68-year-old', 'aged 68'
+    for m in re.finditer(r"\b(\d{1,3})\s*[- ]?(?:year|yr)s?[- ]?old\b", lower):
+        try:
+            matches.append((m.start(), int(m.group(1)), True))
+        except Exception:
+            pass
+    for m in re.finditer(r"\baged\s*(\d{1,3})\b", lower):
+        try:
+            matches.append((m.start(), int(m.group(1)), True))
+        except Exception:
+            pass
+    # Generic forms: '58 years', '58 yo', '58 y/o'
+    for m in re.finditer(r"\b(\d{1,3})\s*(?:years?|yo|y/o)\b", lower):
+        try:
+            matches.append((m.start(), int(m.group(1)), False))
+        except Exception:
+            pass
+    if not matches:
+        return (None, False)
+    # Choose earliest occurrence; if tie, prefer specific=True
+    matches.sort(key=lambda t: (t[0], 0 if t[2] else 1))
+    _, age, is_specific = matches[0]
+    if age < 0 or age > 120:
+        return (None, is_specific)
+    return (age, is_specific)
+
+
 def _regex_extract(text: str) -> Dict[str, Any]:
     """Very simple heuristic extractor as a safe fallback when no LLM key is set."""
     lower = text.lower()
-
-    # crude grabs
-    age_match = re.search(r"(\b\d{1,3})\s*(?:years?|yo|y/o)\b", lower)
+    # Find age robustly
+    age_val, _ = _extract_age_from_text(text)
     sex_match = re.search(r"\b(male|female|man|woman)\b", lower)
     dx_match = re.search(r"diagnos(?:is|ed)\s*(?:with)?\s*([\w\s\-]+?)(?:\.|,|;|$)", lower)
 
@@ -45,7 +78,7 @@ def _regex_extract(text: str) -> Dict[str, Any]:
             return "Female"
         return None
 
-    age = int(age_match.group(1)) if age_match else None
+    age = age_val
     sex = norm_sex(sex_match.group(1) if sex_match else None)
     diagnosis = dx_match.group(1).strip().title() if dx_match else None
 
@@ -98,6 +131,18 @@ def _gemini_extract(transcript: str) -> Dict[str, Any]:
         if isinstance(data.get("sex"), str):
             s = data["sex"].lower()
             data["sex"] = "Male" if "male" in s else ("Female" if "female" in s else None)
+        # normalize age if string like '58-year-old'
+        if isinstance(data.get("age"), str):
+            m_age = re.search(r"\b(\d{1,3})\b", data["age"])  # extract first integer
+            if m_age:
+                try:
+                    data["age"] = int(m_age.group(1))
+                except Exception:
+                    data["age"] = None
+        # If LLM age is missing or likely wrong, prefer specific textual age
+        txt_age, specific = _extract_age_from_text(transcript)
+        if txt_age is not None and (data.get("age") is None or specific):
+            data["age"] = txt_age
         return {
             "age": data.get("age"),
             "sex": data.get("sex"),
