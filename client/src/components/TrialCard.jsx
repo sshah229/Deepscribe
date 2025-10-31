@@ -9,6 +9,7 @@ export default function TrialCard({ study }) {
   const id = (study.NCTId || [])[0]
   const title = (study.BriefTitle || [])[0]
   const status = (study.OverallStatus || [])[0]
+  const badgeClass = status ? status.toLowerCase().replace(/[^a-z0-9]+/g, '_') : ''
   const cond = line(study.Condition)
   const gender = (study.Gender || [])[0] || 'All'
   const minAge = (study.MinimumAge || [])[0] || 'N/A'
@@ -19,7 +20,7 @@ export default function TrialCard({ study }) {
   const phase = line(study.Phase)
   const studyType = line(study.StudyType)
   const interventions = line(study.InterventionName)
-  const summary = (study.BriefSummary || [])[0] || ''
+  const summary = ((study.BriefSummary || [])[0] || '').slice(0, 280)
 
   const url = id ? `https://clinicaltrials.gov/study/${id}` : undefined
 
@@ -27,9 +28,9 @@ export default function TrialCard({ study }) {
     <article className="card">
       <header>
         <h3>{title || 'Untitled Trial'}</h3>
-        {status && <span className={`badge ${status.toLowerCase()}`}>{status}</span>}
+        {status && <span className={`badge ${badgeClass}`}>{status}</span>}
       </header>
-      <p className="muted">{summary}</p>
+      <p className="muted">{summary}{summary.length === 280 ? '…' : ''}</p>
       <div className="meta">
         <div><strong>NCT</strong>: {id}</div>
         <div><strong>Condition</strong>: {cond}</div>

@@ -37,7 +37,7 @@ export default function App() {
     <div className="container">
       <header>
         <h1>DeepScribe Clinical Trials Finder</h1>
-        <p>Paste a patient-doctor transcript, extract patient info, and find matching trials.</p>
+        <p>Paste a patient–doctor transcript. Extract key data, then find top trial matches.</p>
       </header>
 
       <section className="input-section">
@@ -62,8 +62,22 @@ export default function App() {
             <div><strong>Age:</strong> {extracted.age ?? 'Unknown'}</div>
             <div><strong>Sex:</strong> {extracted.sex ?? 'Unknown'}</div>
             <div><strong>Diagnosis:</strong> {extracted.diagnosis ?? 'Unknown'}</div>
-            <div><strong>Keywords:</strong> {(extracted.keywords || []).join(', ') || '—'}</div>
-            <div><strong>Locations:</strong> {(extracted.locations || []).join(', ') || '—'}</div>
+            <div>
+              <strong>Keywords:</strong>
+              <div className="chips">
+                {(extracted.keywords || []).length ? (extracted.keywords || []).map((k, i) => (
+                  <span key={i} className="chip">{k}</span>
+                )) : <span className="muted">—</span>}
+              </div>
+            </div>
+            <div>
+              <strong>Locations:</strong>
+              <div className="chips">
+                {(extracted.locations || []).length ? (extracted.locations || []).map((k, i) => (
+                  <span key={i} className="chip">{k}</span>
+                )) : <span className="muted">—</span>}
+              </div>
+            </div>
           </div>
         </section>
       )}
@@ -80,7 +94,11 @@ export default function App() {
         </section>
       )}
 
-      {loading && <div className="loading">Working...</div>}
+      {loading && (
+        <div className="loading">
+          <div className="spinner" />
+        </div>
+      )}
 
       <footer>
         <small>Backend: Flask + Gemini (optional). Data: ClinicalTrials.gov.</small>
